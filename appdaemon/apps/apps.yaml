@@ -1,0 +1,7 @@
+heating:
+  module: heating-driver
+  class: Heating
+  switch_heating: switch.shellyplus1_901506815550
+  rooms:
+    - scheduler: schedule.obyvak_plan
+      thermostats: climate.obyvak_termostat_1
