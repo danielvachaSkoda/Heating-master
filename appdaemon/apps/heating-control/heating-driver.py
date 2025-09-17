@@ -8,8 +8,8 @@ ATTR_DEFAULT_MODE = "mode"
 MODE_SCHEDULE = "scheduler"
 MODE_MANUAL = "manual"
 ATTR_SCHEDULER = "scheduler"
-ATTR_SENSOR = "thermostats"
-ATTR_THERMOSTATS = "thermostats"
+ATTR_SENSOR = "thermostat"
+ATTR_THERMOSTATS = "thermostat"
 HVAC_HEAT = "heat"
 HVAC_OFF = "off"
 
@@ -38,11 +38,13 @@ class Heating(hass.Hass):
 
     def init_all_rooms(self):
         for room in self.__rooms:
-            self.log(f" call init_all_rooms")
-            self.listen_state(self.target_changed, room[ATTR_THERMOSTATS])
+            vari=room[ATTR_THERMOSTATS]
+            self.log(f" call init_all_rooms: {vari}")
+            self.handle = self.listen_state(self.target_changed,vari,attribute="temperature")
 
     def run_periodic_rooms(self, kwargs):
         """This method will be called every 5 minutes"""
+        self.log("", level="INFO")
         self.log("Running periodic update...", level="INFO")
         heatOnB = False
         for room in self.__rooms:
@@ -72,13 +74,14 @@ class Heating(hass.Hass):
     def target_changed(self, entity, attribute, old, new, kwargs):
         """Event handler: target temperature"""
         self.log(" called target_changed")
-        self.__update_heating()
-        for room in self.__rooms:
-            if (
-                    room[ATTR_TEMPERATURE_DAY] == entity
-                    or room[ATTR_TEMPERATURE_NIGHT] == entity
-            ):
-                self.__update_thermostats(sensor_entity=room[ATTR_THERMOSTATS])
+        self.log(f" entity: {entity}")
+        #self.__update_heating()
+        #for room in self.__rooms:
+        #    if (
+        #        room[ATTR_TEMPERATURE_DAY] == entity
+        #        or room[ATTR_TEMPERATURE_NIGHT] == entity
+        #    ):
+        #        self.__update_thermostats(sensor_entity=room[ATTR_THERMOSTATS])
 
     def is_heating(self) -> bool:
         return bool(self.get_state(self.__switch_heating).lower() == "on")
@@ -90,7 +93,7 @@ class Heating(hass.Hass):
 
     def get_current_temperature(self,entity_thermostat) -> float:
         attributesT = self.get_state(entity_thermostat, attribute="all")
-        self.log(f"Turning heating on in set heating {attributesT}")
+        #self.log(f"get_current_temperature atributes {attributesT}")
         currentTempValue = attributesT["attributes"].get('current_temperature')
         return float(currentTempValue)
 
