@@ -1,7 +1,21 @@
+---
 heating:
   module: heating-driver
   class: Heating
   switch_heating: switch.shellyplus1_901506815550
   rooms:
     - scheduler: schedule.obyvak_plan
-      thermostats: climate.obyvak_termostat_1
+      thermostat: climate.obyvak_termostat_1
+      mode: schedule
+
+Danielhello_world:
+  module: DanielHelloWorld
+  class: DanielHelloWorldCl
+
+heating-control:
+  module: heating-control
+  class: HeatingControl
+  switch_heating: switch.shellyplus1_901506815550
+  somebody_home: input_boolean.somebody_home
+  heating_mode: input_select.heating_mode
+  temperature_vacation: input_number.vacation_temperature

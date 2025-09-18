@@ -18,6 +18,7 @@ ATTR_HVAC_MODE = "hvac_mode"
 ATTR_HVAC_MODES = "hvac_modes"
 ATTR_TEMPERATURE = "temperature"
 ATTR_TEMPERATURE_DAY = "temperature_day"
+ATTR_ENTITY_ID = "entity_id"
 
 #
 # Hellow World App
@@ -31,6 +32,7 @@ class Heating(hass.Hass):
         self.log("Hello from AppDaemon")
         self.log("You are now ready to run Apps!")
         self.__rooms = self.args.get(ATTR_ROOMS)
+        self.__mode_dict={}
         self.__switch_heating = self.args.get(ATTR_SWITCH_HEATING)
         self.__update_thermostats()
         self.init_all_rooms()
@@ -38,14 +40,22 @@ class Heating(hass.Hass):
 
     def init_all_rooms(self):
         for room in self.__rooms:
-            vari=room[ATTR_THERMOSTATS]
-            self.log(f" call init_all_rooms: {vari}")
-            self.handle = self.listen_state(self.target_changed,vari,attribute="temperature")
+            entity_climate=room[ATTR_THERMOSTATS]
+            attributes = self.get_state(entity_climate, attribute="all")
+            self.log(f" attributes thermostat: {attributes}")
+            self.log(f" attributes ATTR_ENTITY_ID: {ATTR_ENTITY_ID}")
+            climate_id = attributes[ATTR_ENTITY_ID]
+            self.log(f" climate_id: {climate_id}")
+            self.__mode_dict[climate_id]=MODE_SCHEDULE
+            self.log(f" call init_all_rooms: {entity_climate}")
+            self.get_attributes(room)
+            self.handle = self.listen_state(self.target_changed,entity_climate,attribute="temperature")
 
     def run_periodic_rooms(self, kwargs):
         """This method will be called every 5 minutes"""
         self.log("", level="INFO")
         self.log("Running periodic update...", level="INFO")
+        self.log(f" self.__mode_dict  {self.__mode_dict}")
         heatOnB = False
         for room in self.__rooms:
             self.log(f"mistnost plan:  {room[ATTR_SCHEDULER]} ")
@@ -75,6 +85,10 @@ class Heating(hass.Hass):
         """Event handler: target temperature"""
         self.log(" called target_changed")
         self.log(f" entity: {entity}")
+        self.log(f" attribute: {attribute}")
+        self.log(f" old: {old}")
+        self.log(f" new: {new}")
+        self.log(f" kwargs: {kwargs}")
         #self.__update_heating()
         #for room in self.__rooms:
         #    if (
@@ -90,6 +104,10 @@ class Heating(hass.Hass):
         attributes = self.get_state(entity_scheduler, attribute="all")
         temperature = attributes["attributes"].get("temperature")
         return float(temperature)
+    def get_attributes(self,room):
+        entity=room[ATTR_SCHEDULER]
+        attributes = self.get_state(entity, attribute="all")
+        self.log(f" call get_attributes {attributes}")
 
     def get_current_temperature(self,entity_thermostat) -> float:
         attributesT = self.get_state(entity_thermostat, attribute="all")
