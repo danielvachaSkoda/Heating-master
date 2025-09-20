@@ -1,3 +1,4 @@
+import math
 import appdaemon.plugins.hass.hassapi as hass
 
 
@@ -5,8 +6,11 @@ ATTR_SWITCH_HEATING = "switch_heating"
 ATTR_ROOMS = "rooms"
 HYSTERESIS = 1 # in celsius
 ATTR_DEFAULT_MODE = "mode"
+
+# 2 type of room mode
 MODE_SCHEDULE = "scheduler"
 MODE_MANUAL = "manual"
+
 ATTR_SCHEDULER = "scheduler"
 ATTR_SENSOR = "thermostat"
 ATTR_THERMOSTATS = "thermostat"
@@ -32,7 +36,7 @@ class Heating(hass.Hass):
         self.log("Hello from AppDaemon")
         self.log("You are now ready to run Apps!")
         self.__rooms = self.args.get(ATTR_ROOMS)
-        self.__mode_dict={}
+        self.__room_mode_dict={}
         self.__switch_heating = self.args.get(ATTR_SWITCH_HEATING)
         self.__update_thermostats()
         self.init_all_rooms()
@@ -41,33 +45,54 @@ class Heating(hass.Hass):
     def init_all_rooms(self):
         for room in self.__rooms:
             entity_climate=room[ATTR_THERMOSTATS]
-            attributes = self.get_state(entity_climate, attribute="all")
-            self.log(f" attributes thermostat: {attributes}")
-            self.log(f" attributes ATTR_ENTITY_ID: {ATTR_ENTITY_ID}")
-            climate_id = attributes[ATTR_ENTITY_ID]
-            self.log(f" climate_id: {climate_id}")
-            self.__mode_dict[climate_id]=MODE_SCHEDULE
+            self.setMode(MODE_SCHEDULE,entity_climate)
             self.log(f" call init_all_rooms: {entity_climate}")
             self.get_attributes(room)
             self.handle = self.listen_state(self.target_changed,entity_climate,attribute="temperature")
+
+    def setMode(self,mode,entity_climate):
+        attributes = self.get_state(entity_climate, attribute="all")
+        climate_id = attributes[ATTR_ENTITY_ID]
+        self.log(f" climate_id: {climate_id}")
+        self.__room_mode_dict[climate_id]=mode
+
+    def getMode(self,room) -> str:
+        entity_climate=room[ATTR_THERMOSTATS]
+        attributes = self.get_state(entity_climate, attribute="all")
+        climate_id = attributes[ATTR_ENTITY_ID]
+        return self.__room_mode_dict[climate_id]
+
 
     def run_periodic_rooms(self, kwargs):
         """This method will be called every 5 minutes"""
         self.log("", level="INFO")
         self.log("Running periodic update...", level="INFO")
-        self.log(f" self.__mode_dict  {self.__mode_dict}")
+        self.log(f" self.__room_mode_dict  {self.__room_mode_dict}")
         heatOnB = False
         for room in self.__rooms:
             self.log(f"mistnost plan:  {room[ATTR_SCHEDULER]} ")
-            self.log(f" mode : {room['mode']}")
-            demandTemp = self.get_demand_temperature(room['scheduler'])
+            room_mode=self.getMode(room)
+            self.log(f" room_mode : {room_mode}")
+            demandTemp = self.get_demand_temperature_by_mode(room_mode,room)
             self.log(f" demandTemp value: {demandTemp}")
             currTemp=self.get_current_temperature(room[ATTR_THERMOSTATS])
             self.log(f"current Temp Value: {currTemp}")
+            mode= self.getMode(room)
+            self.log(f"current modee: {mode}")
             if demandTemp>currTemp+HYSTERESIS:
                 self.log("Turning heating on.")
                 heatOnB=True
         self.__set_heating(heatOnB)
+
+    def infoClimate(self,room):
+        entity_climate=room[ATTR_THERMOSTATS]
+        self.infoClimateEntity(entity_climate)
+
+    def infoClimateEntity(self,entity_climate):
+        attributes = self.get_state(entity_climate, attribute="all")
+        self.log(f"infoClimateEntity: {attributes}")
+        modeDict=self.__room_mode_dict[entity_climate]
+        self.log(f"modeDict: {modeDict}")
 
     def __set_heating(self, heat: bool):
         """Set the relay on/off"""
@@ -88,7 +113,8 @@ class Heating(hass.Hass):
         self.log(f" attribute: {attribute}")
         self.log(f" old: {old}")
         self.log(f" new: {new}")
-        self.log(f" kwargs: {kwargs}")
+        self.infoClimateEntity(entity)
+        self.setMode(MODE_MANUAL,entity)
         #self.__update_heating()
         #for room in self.__rooms:
         #    if (
@@ -100,10 +126,20 @@ class Heating(hass.Hass):
     def is_heating(self) -> bool:
         return bool(self.get_state(self.__switch_heating).lower() == "on")
 
-    def get_demand_temperature(self,entity_scheduler) -> float:
-        attributes = self.get_state(entity_scheduler, attribute="all")
+    def get_demand_temperature(self,entity) -> float:
+        """Return demand temperature  from entity climate, or schedule(alsou return math.nan)"""
+        attributes = self.get_state(entity, attribute="all")
         temperature = attributes["attributes"].get("temperature")
+        if temperature == 'None':
+            return math.nan
         return float(temperature)
+
+    def get_demand_temperature_by_mode(self,room_mode,room) -> float:
+        if room_mode.lower() == MODE_SCHEDULE.lower():
+            return self.get_demand_temperature(room[ATTR_SCHEDULER])
+        if room_mode.lower() == MODE_MANUAL.lower():
+            return self.get_demand_temperature(room[ATTR_THERMOSTATS])
+
     def get_attributes(self,room):
         entity=room[ATTR_SCHEDULER]
         attributes = self.get_state(entity, attribute="all")
@@ -114,7 +150,6 @@ class Heating(hass.Hass):
         #self.log(f"get_current_temperature atributes {attributesT}")
         currentTempValue = attributesT["attributes"].get('current_temperature')
         return float(currentTempValue)
-
 
     def __get_target_room_temp(self, room) -> float:
         """Returns target room temparture, based on day/night switch (not considering vacation)"""
@@ -149,8 +184,9 @@ class Heating(hass.Hass):
             attrs[ATTR_CURRENT_TEMP] = current_temp
             attrs[ATTR_TEMPERATURE] = target_temp
             attrs[ATTR_HVAC_MODE] = mode
+            attrs['preset_mode'] = 'Schedule'
             attrs[ATTR_HVAC_MODES] = [HVAC_HEAT, HVAC_OFF]
-            self.set_state(entity_id, state=mode, attributes=attrs)
+            self.set_state(entity_id, state='Schedule', attributes=attrs)
             self.call_service(
                 "climate/set_temperature", entity_id=entity_id, temperature=target_temp
             )
