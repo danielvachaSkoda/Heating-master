@@ -14,6 +14,8 @@ MODE_MANUAL = "manual"
 ATTR_SCHEDULER = "scheduler"
 ATTR_SENSOR = "thermostat"
 ATTR_THERMOSTATS = "thermostat"
+
+# 2 types of boiler mode
 HVAC_HEAT = "heat"
 HVAC_OFF = "off"
 
@@ -38,9 +40,9 @@ class Heating(hass.Hass):
         self.__rooms = self.args.get(ATTR_ROOMS)
         self.__room_mode_dict={}
         self.__switch_heating = self.args.get(ATTR_SWITCH_HEATING)
-        self.__update_thermostats()
         self.init_all_rooms()
-        self.run_every(self.run_periodic_rooms, "now", 1 * 30)
+        self.__update_thermostats()
+        self.run_every(self.run_periodic_rooms, "now", 1 * 20)
 
     def init_all_rooms(self):
         for room in self.__rooms:
@@ -60,8 +62,13 @@ class Heating(hass.Hass):
         entity_climate=room[ATTR_THERMOSTATS]
         attributes = self.get_state(entity_climate, attribute="all")
         climate_id = attributes[ATTR_ENTITY_ID]
+        self.log(f"getMode -for {climate_id}", level="INFO")
         return self.__room_mode_dict[climate_id]
 
+    def getModeByEntity(self,entity_climate) -> str:
+        attributes = self.get_state(entity_climate, attribute="all")
+        climate_id = attributes[ATTR_ENTITY_ID]
+        return self.__room_mode_dict[climate_id]
 
     def run_periodic_rooms(self, kwargs):
         """This method will be called every 5 minutes"""
@@ -113,15 +120,10 @@ class Heating(hass.Hass):
         self.log(f" attribute: {attribute}")
         self.log(f" old: {old}")
         self.log(f" new: {new}")
-        self.infoClimateEntity(entity)
         self.setMode(MODE_MANUAL,entity)
-        #self.__update_heating()
-        #for room in self.__rooms:
-        #    if (
-        #        room[ATTR_TEMPERATURE_DAY] == entity
-        #        or room[ATTR_TEMPERATURE_NIGHT] == entity
-        #    ):
-        #        self.__update_thermostats(sensor_entity=room[ATTR_THERMOSTATS])
+        #if ( room[ATTR_TEMPERATURE_DAY] == entity
+        #   or room[ATTR_TEMPERATURE_NIGHT] == entity):
+        self.__update_thermostats(thermostat_entity=entity)
 
     def is_heating(self) -> bool:
         return bool(self.get_state(self.__switch_heating).lower() == "on")
@@ -147,43 +149,29 @@ class Heating(hass.Hass):
 
     def get_current_temperature(self,entity_thermostat) -> float:
         attributesT = self.get_state(entity_thermostat, attribute="all")
-        #self.log(f"get_current_temperature atributes {attributesT}")
         currentTempValue = attributesT["attributes"].get('current_temperature')
         return float(currentTempValue)
 
-    def __get_target_room_temp(self, room) -> float:
-        """Returns target room temparture, based on day/night switch (not considering vacation)"""
-        #if bool(self.get_state(room[ATTR_DAYNIGHT]).lower() == "on"):
-        #    return float(self.get_state(room[ATTR_TEMPERATURE_DAY]))
-        #else:
-        #    return float(self.get_state(room[ATTR_TEMPERATURE_NIGHT]))
-        attributes = self.get_state(room[MODE_SCHEDULE], attribute="all")
-        temperature = attributes["attributes"].get("temperature")
-        return float(temperature)
-
     def __set_thermostat(
-            self, entity_id: str, target_temp: float, current_temp: float, mode: str
+            self, entity_id: str, target_temp: float, current_temp: float, boiler_mode: str
     ):
         """Set the thermostat attrubutes and state"""
         if target_temp is None:
             target_temp = self.__get_target_temp(termostat=entity_id)
         if current_temp is None:
             current_temp = self.__get_current_temp(termostat=entity_id)
-        if mode is None:
-            if self.is_heating():
-                mode = HVAC_HEAT
-            else:
-                mode = HVAC_OFF
+        if boiler_mode is None:
+            boiler_mode=self.get_boilerMode()
         self.log(
             f"Updating thermostat {entity_id}: "
             f"temperature target {target_temp}, "
-            f"mode {mode}, "
+            f"mode {boiler_mode}, "
             f"current temperature {current_temp}.")
-        if current_temp is not None and target_temp is not None and mode is not None:
+        if current_temp is not None and target_temp is not None and boiler_mode is not None:
             attrs = {}
             attrs[ATTR_CURRENT_TEMP] = current_temp
             attrs[ATTR_TEMPERATURE] = target_temp
-            attrs[ATTR_HVAC_MODE] = mode
+            attrs[ATTR_HVAC_MODE] = boiler_mode
             attrs['preset_mode'] = 'Schedule'
             attrs[ATTR_HVAC_MODES] = [HVAC_HEAT, HVAC_OFF]
             self.set_state(entity_id, state='Schedule', attributes=attrs)
@@ -192,29 +180,33 @@ class Heating(hass.Hass):
             )
             self.log(f" call set atribute ok {attrs}")
 
+    def get_boilerMode(self) -> str:
+        if self.is_heating():
+            return HVAC_HEAT
+        else:
+            return HVAC_OFF
 
-
-    def __update_thermostats(self, thermostat_entity: str = None):
+    def __update_thermostats(self, thermostat_entity: str = None, scheduler_entity: str = None):
         """Set the thermostats target temperature, current temperature and heating mode"""
         #vacation = self.get_mode() == MODE_VACATION
         #vacation_temperature = float(self.get_state(self.__temperature_vacation))
 
         for room in self.__rooms:
             if (
-                    (thermostat_entity is None)
+                    (thermostat_entity is None and scheduler_entity is None)
                     or (thermostat_entity in room[ATTR_THERMOSTATS])
+                    or (scheduler_entity == room[ATTR_SCHEDULER])
             ):
-                self.log(f"updating sensor {room[ATTR_THERMOSTATS]}")
+                self.log(f"updating room with thermostat {room[ATTR_THERMOSTATS]}")
+                room_mode=self.getMode(room)
                 temperature = self.get_current_temperature(room[ATTR_THERMOSTATS])
                 self.log(f" temperature {temperature}")
-                target_temperature = self.__get_target_room_temp(room)
-                self.log(f" target_temperature {target_temperature}")
-                if self.is_heating():
-                    mode = HVAC_HEAT
-                else:
-                    mode = HVAC_OFF
+                demandTemp = self.get_demand_temperature_by_mode(room_mode,room)
+                self.log(f" target_temperature {demandTemp}")
+                boiler_mode = self.get_boilerMode()
                 self.log(f"in room thermostat: {room[ATTR_THERMOSTATS]}")
-                self.__set_thermostat(room[ATTR_THERMOSTATS], target_temperature, temperature, mode)
+                self.__set_thermostat(room[ATTR_THERMOSTATS], demandTemp, temperature, boiler_mode)
+
 
 
 
