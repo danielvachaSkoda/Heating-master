@@ -1,6 +1,8 @@
 import math
+import time
 import appdaemon.plugins.hass.hassapi as hass
 
+## todo  prepare bool function is any entity in switching state
 
 ATTR_SWITCH_HEATING = "switch_heating"
 ATTR_ROOMS = "rooms"
@@ -10,6 +12,10 @@ ATTR_DEFAULT_MODE = "mode"
 # 2 type of room mode
 MODE_SCHEDULE = "scheduler"
 MODE_MANUAL = "manual"
+
+# 2 type of state
+STATE_SWITCHING = "switching" # actual switching do not response to changes in  thermostat
+STATE_NORMAL = "normal"
 
 ATTR_SCHEDULER = "scheduler"
 ATTR_SENSOR = "thermostat"
@@ -26,6 +32,9 @@ ATTR_TEMPERATURE = "temperature"
 ATTR_TEMPERATURE_DAY = "temperature_day"
 ATTR_ENTITY_ID = "entity_id"
 
+# partial name for schedule entity
+ATTR_SCHEDULE = "schedule"
+
 #
 # Hellow World App
 #
@@ -39,10 +48,11 @@ class Heating(hass.Hass):
         self.log("You are now ready to run Apps!")
         self.__rooms = self.args.get(ATTR_ROOMS)
         self.__room_mode_dict={}
+        self.__entity_state_dict={}
         self.__switch_heating = self.args.get(ATTR_SWITCH_HEATING)
         self.init_all_rooms()
         self.__update_thermostats()
-        self.run_every(self.run_periodic_rooms, "now", 1 * 20)
+        #self.run_every(self.run_periodic_rooms, "now", 1 * 20)
 
     def init_all_rooms(self):
         for room in self.__rooms:
@@ -51,6 +61,10 @@ class Heating(hass.Hass):
             self.log(f" call init_all_rooms: {entity_climate}")
             self.get_attributes(room)
             self.handle = self.listen_state(self.target_changed,entity_climate,attribute="temperature")
+            entity_scheduler=room[ATTR_SCHEDULER]
+            self.log(f" call init_all_rooms: {entity_scheduler}")
+            self.setMode(MODE_SCHEDULE,entity_climate)
+            self.handle = self.listen_state(self.target_changed,entity_scheduler,attribute="temperature")
 
     def setMode(self,mode,entity_climate):
         attributes = self.get_state(entity_climate, attribute="all")
@@ -64,6 +78,18 @@ class Heating(hass.Hass):
         climate_id = attributes[ATTR_ENTITY_ID]
         self.log(f"getMode -for {climate_id}", level="INFO")
         return self.__room_mode_dict[climate_id]
+
+    def getEntityState(self,entity) -> str:
+        attributes = self.get_state(entity, attribute="all")
+        climate_id = attributes[ATTR_ENTITY_ID]
+        self.log(f"getMode -for {climate_id}", level="INFO")
+        return self.__entity_state_dict[climate_id]
+
+    def setEntityState(self,state,entity):
+        attributes = self.get_state(entity, attribute="all")
+        climate_id = attributes[ATTR_ENTITY_ID]
+        self.log(f" entity_id: {climate_id}")
+        self.__entity_state_dict[climate_id]=state
 
     def getModeByEntity(self,entity_climate) -> str:
         attributes = self.get_state(entity_climate, attribute="all")
@@ -120,10 +146,15 @@ class Heating(hass.Hass):
         self.log(f" attribute: {attribute}")
         self.log(f" old: {old}")
         self.log(f" new: {new}")
-        self.setMode(MODE_MANUAL,entity)
-        #if ( room[ATTR_TEMPERATURE_DAY] == entity
-        #   or room[ATTR_TEMPERATURE_NIGHT] == entity):
-        self.__update_thermostats(thermostat_entity=entity)
+        bbb = ATTR_SCHEDULE in entity
+        self.log(f" ATTR_SCHEDULE in ent : {bbb}")
+        if ATTR_SCHEDULE in entity:
+            self.setEntityState(STATE_SWITCHING,entity)
+            self.setMode(MODE_SCHEDULE,entity)
+            self.__update_thermostats(scheduler_entity=entity)
+        elif self.getEntityState(entity) != STATE_SWITCHING:
+            self.setMode(MODE_MANUAL,entity)
+            self.__update_thermostats(thermostat_entity=entity)
 
     def is_heating(self) -> bool:
         return bool(self.get_state(self.__switch_heating).lower() == "on")
@@ -189,23 +220,21 @@ class Heating(hass.Hass):
     def __update_thermostats(self, thermostat_entity: str = None, scheduler_entity: str = None):
         """Set the thermostats target temperature, current temperature and heating mode"""
         #vacation = self.get_mode() == MODE_VACATION
-        #vacation_temperature = float(self.get_state(self.__temperature_vacation))
-
+        #vacation_tempself.log(f" room_mode {temperature}")erature = float(self.get_state(self.__temperature_vacation))
+        self.log(f" __update_thermostats start ")
         for room in self.__rooms:
-            if (
-                    (thermostat_entity is None and scheduler_entity is None)
-                    or (thermostat_entity in room[ATTR_THERMOSTATS])
-                    or (scheduler_entity == room[ATTR_SCHEDULER])
-            ):
-                self.log(f"updating room with thermostat {room[ATTR_THERMOSTATS]}")
-                room_mode=self.getMode(room)
-                temperature = self.get_current_temperature(room[ATTR_THERMOSTATS])
-                self.log(f" temperature {temperature}")
-                demandTemp = self.get_demand_temperature_by_mode(room_mode,room)
-                self.log(f" target_temperature {demandTemp}")
-                boiler_mode = self.get_boilerMode()
-                self.log(f"in room thermostat: {room[ATTR_THERMOSTATS]}")
-                self.__set_thermostat(room[ATTR_THERMOSTATS], demandTemp, temperature, boiler_mode)
+            self.log(f"updating room with thermostat {room[ATTR_THERMOSTATS]}")
+            room_mode=self.getMode(room)
+            self.log(f" room_mode {room_mode}")
+            temperature = self.get_current_temperature(room[ATTR_THERMOSTATS])
+            self.log(f" temperature {temperature}")
+            demandTemp = self.get_demand_temperature_by_mode(room_mode,room)
+            self.log(f" target_temperature {demandTemp}")
+            boiler_mode = self.get_boilerMode()
+            self.log(f"in room thermostat: {room[ATTR_THERMOSTATS]}")
+            self.__set_thermostat(room[ATTR_THERMOSTATS], demandTemp, temperature, boiler_mode)
+            time.sleep(5)
+            self.setEntityState(STATE_NORMAL,room[ATTR_SCHEDULER])
 
 
 
