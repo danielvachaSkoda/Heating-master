@@ -1,5 +1,4 @@
 import math
-import time
 from datetime import datetime, timedelta
 import appdaemon.plugins.hass.hassapi as hass
 
@@ -52,7 +51,7 @@ class Heating(hass.Hass):
         self.__room_mode_dict={}
         self.__switch_heating = self.args.get(ATTR_SWITCH_HEATING)
         self.init_all_rooms()
-        self.__update_thermostats()
+        #self.__update_thermostats()
 
 
     def init_all_rooms(self):
@@ -66,6 +65,7 @@ class Heating(hass.Hass):
             roomId=room[ATTR_ROOM_ID]
             self.setMode(MODE_SCHEDULE,roomId)
             self.handle = self.listen_state(self.target_changed,entity_scheduler,attribute="temperature")
+            self.__update_thermostat(room)
 
     def setMode(self,mode,room_id):
         self.log(f"called setMode() room_id: {room_id} set mode {mode}")
@@ -115,15 +115,16 @@ class Heating(hass.Hass):
         time_difference = actualDT - self.lastSwitchDt
         room=self.getRoomByEntity(entity)
         bbb = ATTR_SCHEDULE in entity
+        self.log(f" room {room}")
         self.log(f" ATTR_SCHEDULE in ent : {bbb}, time_difference {time_difference}")
         if ATTR_SCHEDULE in entity:
             self.setMode(MODE_SCHEDULE,room[ATTR_ROOM_ID])
-            self.__update_thermostats(scheduler_entity=entity)
             self.lastSwitchDt=datetime.now()
+            self.__update_thermostat(room)
             return
         elif time_difference > five_seconds:
             self.setMode(MODE_MANUAL,room[ATTR_ROOM_ID])
-            self.__update_thermostats(thermostat_entity=entity)
+            self.__update_thermostat(room)
 
     def is_heating(self) -> bool:
         return bool(self.get_state(self.__switch_heating).lower() == "on")
@@ -186,22 +187,19 @@ class Heating(hass.Hass):
         else:
             return HVAC_OFF
 
-    def __update_thermostats(self, thermostat_entity: str = None, scheduler_entity: str = None):
+    def __update_thermostat(self, room: str = None):
         """Set the thermostats target temperature, current temperature and heating mode"""
-        #vacation = self.get_mode() == MODE_VACATION
-        #vacation_tempself.log(f" room_mode {temperature}")erature = float(self.get_state(self.__temperature_vacation))
-        self.log(f" __update_thermostats start ")
-        for room in self.__rooms:
-            self.log(f"updating room with thermostat {room[ATTR_THERMOSTATS]}")
-            room_mode=self.getMode(room)
-            self.log(f" room_mode {room_mode}")
-            temperature = self.get_current_temperature(room[ATTR_THERMOSTATS])
-            self.log(f" temperature {temperature}")
-            demandTemp = self.get_demand_temperature_by_mode(room_mode,room)
-            self.log(f" target_temperature {demandTemp}")
-            boiler_mode = self.get_boilerMode()
-            self.log(f"in room thermostat: {room[ATTR_THERMOSTATS]}")
-            self.__set_thermostat(room[ATTR_THERMOSTATS], demandTemp, temperature, boiler_mode)
+        self.log(f" __update_thermostat start in room")
+        self.log(f"updating room with thermostat {room[ATTR_THERMOSTATS]}")
+        room_mode=self.getMode(room)
+        self.log(f" room_mode {room_mode}")
+        temperature = self.get_current_temperature(room[ATTR_THERMOSTATS])
+        self.log(f" temperature {temperature}")
+        demandTemp = self.get_demand_temperature_by_mode(room_mode,room)
+        self.log(f" target_temperature {demandTemp}")
+        boiler_mode = self.get_boilerMode()
+        self.log(f"in room thermostat: {room[ATTR_THERMOSTATS]}")
+        self.__set_thermostat(room[ATTR_THERMOSTATS], demandTemp, temperature, boiler_mode)
 
 
 
