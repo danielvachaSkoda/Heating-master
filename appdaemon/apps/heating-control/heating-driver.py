@@ -45,13 +45,14 @@ class Heating(hass.Hass):
 
     def initialize(self):
         self.log("Hello from AppDaemon")
-        self.log("You are now ready to run Apps!")
+        self.log("You are now ready to Heating!")
         self.__rooms = self.args.get(ATTR_ROOMS)
+        self.log(f"rooms {self.__rooms}")
         self.lastSwitchDt=datetime.now()
         self.__room_mode_dict={}
         self.__switch_heating = self.args.get(ATTR_SWITCH_HEATING)
+        self.log(f"__switch_heating {self.__switch_heating}")
         self.init_all_rooms()
-        #self.__update_thermostats()
 
 
     def init_all_rooms(self):
