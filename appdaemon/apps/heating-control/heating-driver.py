@@ -53,42 +53,46 @@ class Heating(hass.Hass):
         self.__switch_heating = self.args.get(ATTR_SWITCH_HEATING)
         self.log(f"__switch_heating {self.__switch_heating}")
         self.init_all_rooms()
-        self.run_every(self.run_periodic_rooms, "now", 15 * 60)
+        self.run_every(self.run_periodic_rooms, "now", 22 * 60)
 
     def run_periodic_rooms(self, kwargs):
         """This method will be called every 5 minutes"""
         self.log("", level="INFO")
-        self.log("Running periodic update...", level="INFO")
+        #self.log("Running periodic update...", level="INFO")
         heatOnB = False
         #history=self.get_history()
         #self.log(f" history  {history}")
         self.get_attributes_shelly()
         for room in self.__rooms:
             room_mode=self.getMode(room)
-            self.log(f" room_mode {room_mode}")
             temperature = self.get_current_temperature(room[ATTR_THERMOSTATS])
-            self.log(f" temperature {temperature}")
             follow=self.get_follow_state(room[ATTR_SCHEDULER])
-            self.log(f" follow {follow}")
+            self.log(f"follow {follow}, room_mode {room_mode}, temperature {temperature}")
             demandTemp = self.get_demand_temperature_by_mode(room_mode,room)
             bol=demandTemp>temperature+HYSTERESIS
             self.log(f"run_periodic_rooms Turning ? bol:{bol}")
             if follow and bol:
-                self.log("run_periodic_rooms Turning heating on.")
+                self.log(f"run_periodic_rooms Turning heating on. {room[ATTR_ROOM_ID]}")
                 heatOnB=True
-        self.__set_heating(heatOnB)
+        if heatOnB:
+            self.log("run_periodic_rooms heatOnB true")
+            delay_seconds = 1200
+            self.__set_heating(heatOnB)
+            self.run_in(self.delayed_set_heating, delay_seconds,heat=False)
+
 
     def init_all_rooms(self):
         for room in self.__rooms:
             entity_climate=room[ATTR_THERMOSTATS]
             self.log(f" call init_all_rooms: {entity_climate}")
             self.get_attributes(room)
-            self.handle = self.listen_state(self.target_changed,entity_climate,attribute="temperature")
+            self.handle = self.listen_state(self.target_changed,entity_climate,attribute="current_temperature")
+            self.handle = self.listen_state(self.target_current_temp_changed,entity_climate,attribute="temperature")
             entity_scheduler=room[ATTR_SCHEDULER]
             self.log(f" call init_all_rooms: {entity_scheduler}")
             roomId=room[ATTR_ROOM_ID]
             self.setMode(MODE_SCHEDULE,roomId)
-            self.handle = self.listen_state(self.target_changed,entity_scheduler,attribute="temperature")
+            self.handle = self.listen_state(self.scheduler_changed_temperature,entity_scheduler,attribute="temperature")
             self.__update_thermostat(room)
 
     def setMode(self,mode,room_id):
@@ -97,7 +101,7 @@ class Heating(hass.Hass):
 
     def getMode(self,room) -> str:
         room_id=room[ATTR_ROOM_ID]
-        self.log(f"getMode -for {room_id}", level="INFO")
+        #self.log(f"getMode -for {room_id}", level="INFO")
         return self.__room_mode_dict[room_id]
 
     def getModeByEntity(self,entity_climate) -> str:
@@ -138,28 +142,42 @@ class Heating(hass.Hass):
         self.log("getRoomByEntity return none")
         return None
 
-    def target_changed(self, entity, attribute, old, new, kwargs):
+
+    def scheduler_changed_temperature(self, entity, attribute, old, new, kwargs):
         """Event handler: target temperature", secure time lock to prevent multiple calls"""
-        self.log(" called target_changed")
-        self.log(f" entity: {entity}")
-        self.log(f" attribute: {attribute}")
-        self.log(f" old: {old}")
-        self.log(f" new: {new}")
+        self.log(" called scheduler_changed_temperature ")
+        self.log(f"entity: {entity} attribute: {attribute}, old: {old},new: {new}")
+        self.print_state(entity)
         actualDT=datetime.now()
         five_seconds = timedelta(seconds=5)
         time_difference = actualDT - self.lastSwitchDt
         room=self.getRoomByEntity(entity)
         bbb = ATTR_SCHEDULE in entity
-        self.log(f" room {room}")
-        self.log(f" ATTR_SCHEDULE in ent : {bbb}, time_difference {time_difference}")
+        self.log(f"room {room} ATTR_SCHEDULE in ent : {bbb}, time_difference {time_difference}")
         if ATTR_SCHEDULE in entity:
+            self.log(f"MODE_SCHEDULE {MODE_SCHEDULE}")
             self.setMode(MODE_SCHEDULE,room[ATTR_ROOM_ID])
-            self.lastSwitchDt=datetime.now()
             self.__update_thermostat(room)
             return
-        elif time_difference > five_seconds:
-            self.setMode(MODE_MANUAL,room[ATTR_ROOM_ID])
-            self.__update_thermostat(room)
+
+    def target_changed(self, entity, attribute, old, new, kwargs):
+        """Event handler: target temperature changed """
+        self.log(" called target_changed")
+        self.log(f"entity: {entity} attribute: {attribute}")
+        self.log(f" old: {old},new: {new}")
+        self.print_state(entity)
+        room=self.getRoomByEntity(entity)
+        self.log(f" old: {old},new: {new},room {room}")
+        self.setMode(MODE_MANUAL,room[ATTR_ROOM_ID])
+
+    def target_current_temp_changed(self, entity, attribute, old, new, kwargs):
+        """Event handler: target_current_temp_changed", secure time lock to prevent multiple calls"""
+        self.log(" called target_current_temp_changed")
+        self.log(f"entity: {entity} attribute: {attribute}")
+        self.log(f" old: {old},new: {new}")
+        self.print_state(entity)
+        room=self.getRoomByEntity(entity)
+        self.log(f" old: {old},new: {new},room {room}")
 
     def is_heating(self) -> bool:
         return bool(self.get_state(self.__switch_heating).lower() == "on")
@@ -187,6 +205,10 @@ class Heating(hass.Hass):
         attributes = self.get_state(self.__switch_heating, attribute="all")
         self.log(f" call get_attributes_shelly {attributes}")
 
+    def print_state(self,entity):
+        attributesT = self.get_state(entity, attribute="all")
+        self.log(f" print_state attributesT :{attributesT}")
+
     def get_current_temperature(self,entity_thermostat) -> float:
         attributesT = self.get_state(entity_thermostat, attribute="all")
         currentTempValue = attributesT["attributes"].get('current_temperature')
@@ -194,9 +216,9 @@ class Heating(hass.Hass):
 
     def get_follow_state(self,entity_thermostat) -> float:
         attributesT = self.get_state(entity_thermostat, attribute="all")
-        self.log(f" call get_follow_state attributesT :{attributesT}")
+        #self.log(f" call get_follow_state attributesT :{attributesT}")
         follow = attributesT["attributes"].get('follow')
-        self.log(f" call get_follow_state {follow}")
+        #self.log(f" call get_follow_state {follow}")
         return bool(follow)
 
     def __set_thermostat(
@@ -212,11 +234,11 @@ class Heating(hass.Hass):
         self.log(
             f"Updating thermostat {entity_id}: "
             f"temperature target {target_temp}, "
-            f"mode {boiler_mode}, "
-            f"current temperature {current_temp}.")
+            f"mode {boiler_mode} ")
+        #f"current temperature {current_temp}.")
         if current_temp is not None and target_temp is not None and boiler_mode is not None:
             attrs = {}
-            attrs[ATTR_CURRENT_TEMP] = current_temp
+            #attrs[ATTR_CURRENT_TEMP] = current_temp
             attrs[ATTR_TEMPERATURE] = target_temp
             attrs[ATTR_HVAC_MODE] = boiler_mode
             attrs['preset_mode'] = 'None'
@@ -229,7 +251,7 @@ class Heating(hass.Hass):
                 if current_temp-HYSTERESIS<target_temp:
                     self.log("slow call set heating")
                     delay_seconds = 1200
-                    #self.run_in(self.delayed_set_heating, delay_seconds,heat=False)
+                    self.run_in(self.delayed_set_heating, delay_seconds,heat=False)
                 else:
                     self.__set_heating(False)
             self.log(f" call set atribute ok {attrs}")
@@ -243,18 +265,13 @@ class Heating(hass.Hass):
     def __update_thermostat(self, room: str = None):
         """Set the thermostats target temperature, current temperature and heating mode"""
         self.log(f" __update_thermostat start in room")
-        self.log(f"updating room with thermostat {room[ATTR_THERMOSTATS]}")
         room_mode=self.getMode(room)
-        self.log(f" room_mode {room_mode}")
+        self.log(f"updating room with thermostat {room[ATTR_THERMOSTATS]}, room_mode {room_mode}")
         temperature = self.get_current_temperature(room[ATTR_THERMOSTATS])
-        self.log(f" temperature {temperature}")
         follow=self.get_follow_state(room[ATTR_SCHEDULER])
-        self.log(f" follow {follow}")
         demandTemp = self.get_demand_temperature_by_mode(room_mode,room)
-        self.log(f" target_temperature {demandTemp}")
+        self.log(f"temperature {temperature},follow {follow}, target_temperature {demandTemp}")
         boiler_mode = self.get_boilerMode()
-        self.get_attributes_shelly()
-        self.log(f"in room thermostat: {room[ATTR_THERMOSTATS]}")
         self.__set_thermostat(room[ATTR_THERMOSTATS], demandTemp, temperature, boiler_mode,follow)
 
 
