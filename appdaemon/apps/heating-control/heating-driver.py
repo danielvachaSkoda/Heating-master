@@ -69,7 +69,7 @@ class Heating(hass.Hass):
             follow=self.get_follow_state(room[ATTR_SCHEDULER])
             self.log(f"follow {follow}, room_mode {room_mode}, temperature {temperature}")
             demandTemp = self.get_demand_temperature_by_mode(room_mode,room)
-            bol=demandTemp>temperature+HYSTERESIS
+            bol=demandTemp>temperature+3*HYSTERESIS
             self.log(f"run_periodic_rooms Turning ? bol:{bol}")
             if follow and bol:
                 self.log(f"run_periodic_rooms Turning heating on. {room[ATTR_ROOM_ID]}")
@@ -86,8 +86,8 @@ class Heating(hass.Hass):
             entity_climate=room[ATTR_THERMOSTATS]
             self.log(f" call init_all_rooms: {entity_climate}")
             self.get_attributes(room)
-            self.handle = self.listen_state(self.target_changed,entity_climate,attribute="current_temperature")
-            self.handle = self.listen_state(self.target_current_temp_changed,entity_climate,attribute="temperature")
+            self.handle = self.listen_state(self.target_current_temp_changed,entity_climate,attribute="current_temperature")
+            self.handle = self.listen_state(self.target_demand_temp_changed,entity_climate,attribute="temperature")
             entity_scheduler=room[ATTR_SCHEDULER]
             self.log(f" call init_all_rooms: {entity_scheduler}")
             roomId=room[ATTR_ROOM_ID]
@@ -101,7 +101,7 @@ class Heating(hass.Hass):
 
     def getMode(self,room) -> str:
         room_id=room[ATTR_ROOM_ID]
-        #self.log(f"getMode -for {room_id}", level="INFO")
+        self.log(f"getMode -for {room_id} {self.__room_mode_dict[room_id]}", level="INFO")
         return self.__room_mode_dict[room_id]
 
     def getModeByEntity(self,entity_climate) -> str:
@@ -144,7 +144,8 @@ class Heating(hass.Hass):
 
 
     def scheduler_changed_temperature(self, entity, attribute, old, new, kwargs):
-        """Event handler: target temperature", secure time lock to prevent multiple calls"""
+        """Event handler: target temperature", this changed is linked to demand temperature
+        and subsequently call target_demand_temp_changed"""
         self.log(" called scheduler_changed_temperature ")
         self.log(f"entity: {entity} attribute: {attribute}, old: {old},new: {new}")
         self.print_state(entity)
@@ -157,24 +158,29 @@ class Heating(hass.Hass):
         if ATTR_SCHEDULE in entity:
             self.log(f"MODE_SCHEDULE {MODE_SCHEDULE}")
             self.setMode(MODE_SCHEDULE,room[ATTR_ROOM_ID])
+            self.lastSwitchDt=datetime.now()
             self.__update_thermostat(room)
             return
 
-    def target_changed(self, entity, attribute, old, new, kwargs):
+    def target_demand_temp_changed(self, entity, attribute, old, new, kwargs):
         """Event handler: target temperature changed """
-        self.log(" called target_changed")
+        self.log(" called target_demand_temp_changed")
         self.log(f"entity: {entity} attribute: {attribute}")
-        self.log(f" old: {old},new: {new}")
         self.print_state(entity)
         room=self.getRoomByEntity(entity)
         self.log(f" old: {old},new: {new},room {room}")
-        self.setMode(MODE_MANUAL,room[ATTR_ROOM_ID])
+        actualDT=datetime.now()
+        five_seconds = timedelta(seconds=5)
+        time_difference = actualDT - self.lastSwitchDt
+        #do not change time lock to prevent from call scheduler_changed_temperature
+        if time_difference > five_seconds:
+            self.setMode(MODE_MANUAL,room[ATTR_ROOM_ID])
+        self.getMode(room)
 
     def target_current_temp_changed(self, entity, attribute, old, new, kwargs):
         """Event handler: target_current_temp_changed", secure time lock to prevent multiple calls"""
         self.log(" called target_current_temp_changed")
         self.log(f"entity: {entity} attribute: {attribute}")
-        self.log(f" old: {old},new: {new}")
         self.print_state(entity)
         room=self.getRoomByEntity(entity)
         self.log(f" old: {old},new: {new},room {room}")
