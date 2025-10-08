@@ -57,7 +57,7 @@ class Heating(hass.Hass):
 
     def run_periodic_rooms(self, kwargs):
         """This method will be called every 5 minutes"""
-        self.log("", level="INFO")
+        self.log("run_periodic_rooms", level="INFO")
         #self.log("Running periodic update...", level="INFO")
         heatOnB = False
         #history=self.get_history()
@@ -67,10 +67,9 @@ class Heating(hass.Hass):
             room_mode=self.getMode(room)
             temperature = self.get_current_temperature(room[ATTR_THERMOSTATS])
             follow=self.get_follow_state(room[ATTR_SCHEDULER])
-            self.log(f"follow {follow}, room_mode {room_mode}, temperature {temperature}")
             demandTemp = self.get_demand_temperature_by_mode(room_mode,room)
-            bol=demandTemp>temperature+3*HYSTERESIS
-            self.log(f"run_periodic_rooms Turning ? bol:{bol}")
+            bol=demandTemp>temperature+4.5*HYSTERESIS
+            self.log(f"follow {follow}, room_mode {room_mode}, temperature {temperature}, bol:{bol}")
             if follow and bol:
                 self.log(f"run_periodic_rooms Turning heating on. {room[ATTR_ROOM_ID]}")
                 heatOnB=True
@@ -111,7 +110,6 @@ class Heating(hass.Hass):
 
     def delayed_set_heating(self, kwargs):
         """Wrapper to call __set_heating after a delay."""
-        self.log(f"Executing delayed call to __set_heating kwargs={kwargs}")
         heat = kwargs.get("heat")
         self.log(f" __set_heating heat={heat}")
         if heat is not None and isinstance(heat, bool):
@@ -122,12 +120,12 @@ class Heating(hass.Hass):
     def __set_heating(self, heat: bool):
         """Set the relay on/off"""
         is_heating = self.is_heating()
+        self.log(f"call __set_heating  {heat}, {is_heating}  ")
         if heat:
             if not is_heating:
                 self.log("Turning heating on in set heating")
                 self.turn_on(self.__switch_heating)
         else:
-            self.log("Try heating off. if it is on")
             if is_heating:
                 self.log("Turning heating off. in set heating")
                 self.turn_off(self.__switch_heating)
@@ -146,8 +144,7 @@ class Heating(hass.Hass):
     def scheduler_changed_temperature(self, entity, attribute, old, new, kwargs):
         """Event handler: target temperature", this changed is linked to demand temperature
         and subsequently call target_demand_temp_changed"""
-        self.log(" called scheduler_changed_temperature ")
-        self.log(f"entity: {entity} attribute: {attribute}, old: {old},new: {new}")
+        self.log(f"called scheduler_changed_temperature  entity: {entity} attribute: {attribute}, old: {old},new: {new}")
         self.print_state(entity)
         actualDT=datetime.now()
         five_seconds = timedelta(seconds=5)
@@ -164,8 +161,7 @@ class Heating(hass.Hass):
 
     def target_demand_temp_changed(self, entity, attribute, old, new, kwargs):
         """Event handler: target temperature changed """
-        self.log(" called target_demand_temp_changed")
-        self.log(f"entity: {entity} attribute: {attribute}")
+        self.log(f"called target_demand_temp_changed entity: {entity} attribute: {attribute}")
         self.print_state(entity)
         room=self.getRoomByEntity(entity)
         self.log(f" old: {old},new: {new},room {room}")
@@ -179,8 +175,7 @@ class Heating(hass.Hass):
 
     def target_current_temp_changed(self, entity, attribute, old, new, kwargs):
         """Event handler: target_current_temp_changed", secure time lock to prevent multiple calls"""
-        self.log(" called target_current_temp_changed")
-        self.log(f"entity: {entity} attribute: {attribute}")
+        self.log(f" called target_current_temp_changed entity: {entity} attribute: {attribute}")
         self.print_state(entity)
         room=self.getRoomByEntity(entity)
         self.log(f" old: {old},new: {new},room {room}")
@@ -213,7 +208,7 @@ class Heating(hass.Hass):
 
     def print_state(self,entity):
         attributesT = self.get_state(entity, attribute="all")
-        self.log(f" print_state attributesT :{attributesT}")
+        #self.log(f" print_state attributesT :{attributesT}")
 
     def get_current_temperature(self,entity_thermostat) -> float:
         attributesT = self.get_state(entity_thermostat, attribute="all")
@@ -238,8 +233,7 @@ class Heating(hass.Hass):
         if boiler_mode is None:
             boiler_mode=self.get_boilerMode()
         self.log(
-            f"Updating thermostat {entity_id}: "
-            f"temperature target {target_temp}, "
+            f"Updating thermostat {entity_id}: temperature target {target_temp}, "
             f"mode {boiler_mode} ")
         #f"current temperature {current_temp}.")
         if current_temp is not None and target_temp is not None and boiler_mode is not None:
@@ -270,9 +264,8 @@ class Heating(hass.Hass):
 
     def __update_thermostat(self, room: str = None):
         """Set the thermostats target temperature, current temperature and heating mode"""
-        self.log(f" __update_thermostat start in room")
         room_mode=self.getMode(room)
-        self.log(f"updating room with thermostat {room[ATTR_THERMOSTATS]}, room_mode {room_mode}")
+        self.log(f"__update_thermostat start in room with thermostat {room[ATTR_THERMOSTATS]}, room_mode {room_mode}")
         temperature = self.get_current_temperature(room[ATTR_THERMOSTATS])
         follow=self.get_follow_state(room[ATTR_SCHEDULER])
         demandTemp = self.get_demand_temperature_by_mode(room_mode,room)
