@@ -1,4 +1,5 @@
 import math
+from typing import Optional
 from datetime import datetime, timedelta
 import appdaemon.plugins.hass.hassapi as hass
 
@@ -50,10 +51,28 @@ class Heating(hass.Hass):
         self.log(f"rooms {self.__rooms}")
         self.lastSwitchDt=datetime.now()
         self.__room_mode_dict={}
-        self.__switch_heating = self.args.get(ATTR_SWITCH_HEATING)
-        self.log(f"__switch_heating {self.__switch_heating}")
+        self.initialize_switch_heating()
         self.init_all_rooms()
-        self.run_every(self.run_periodic_rooms, "now", 22 * 60)
+        self.run_every(self.run_periodic_rooms, "now", 2 * 60)
+
+    def initialize_switch_heating(self):
+        """
+        Initializes the heating switch entity from arguments and checks for errors.
+        """
+        self.__switch_heating=None
+        try:
+            self.__switch_heating = self.args.get(ATTR_SWITCH_HEATING)
+            attributesT = self.get_state(self.__switch_heating , attribute="all")
+            self.log(f"initialize_switch_heating attributesT {attributesT}", level="INFO")
+            self.log(f"initialize_switch_heating 0  {attributesT}", level="INFO")
+            state = attributesT["attributes"].get('state')
+            self.log(f"initialize_switch_heating 1  {state}", level="INFO")
+            if state=="unavailable" or state is None:
+                self.__switch_heating=None
+            self.log(f"initialize_switch_heating 2 {self.__switch_heating}", level="INFO")
+        except Exception as e:
+            self.log(f"initialize_switch_heating error : {self.__switch_heating}", level="WARN")
+            self.__switch_heating=None
 
     def run_periodic_rooms(self, kwargs):
         """This method will be called every 5 minutes"""
@@ -61,8 +80,7 @@ class Heating(hass.Hass):
         #self.log("Running periodic update...", level="INFO")
         heatOnB = False
         #history=self.get_history()
-        #self.log(f" history  {history}")
-        self.get_attributes_shelly()
+        #self.get_attributes_shelly()
         for room in self.__rooms:
             room_mode=self.getMode(room)
             temperature = self.get_current_temperature(room[ATTR_THERMOSTATS])
@@ -121,6 +139,9 @@ class Heating(hass.Hass):
         """Set the relay on/off"""
         is_heating = self.is_heating()
         self.log(f"call __set_heating  {heat}, {is_heating}  ")
+        if is_heating is None:
+            self.log("WARNING: Current heating state is UNKNOWN (None). Proceeding with requested action.", level="WARNING")
+            return
         if heat:
             if not is_heating:
                 self.log("Turning heating on in set heating")
@@ -180,8 +201,28 @@ class Heating(hass.Hass):
         room=self.getRoomByEntity(entity)
         self.log(f" old: {old},new: {new},room {room}")
 
-    def is_heating(self) -> bool:
-        return bool(self.get_state(self.__switch_heating).lower() == "on")
+    def is_heating(self) -> Optional[bool]:
+        """
+        Checks heating state. Returns True/False, or None if the state is unresolvable.
+        """
+        self.log(f"is_heating: State for {self.__switch_heating} ")
+        if not self.__switch_heating:
+            self.log("Heating switch entity ID is not set.")
+            return None  # Cannot proceed
+
+        try:
+            state = self.get_state(self.__switch_heating)
+            self.log(f"Heating switch entity {state}.")
+            if state is None:
+                self.log(f"Warning: State for {self.__switch_heating} is None (entity unavailable).", level="WARNING")
+                return None # The state is unknown/unavailable
+
+            # If the state is found, return the boolean result
+            return bool(str(state).lower() == "on")
+
+        except Exception as e:
+            self.error(f"Unexpected error while checking heating state: {e}")
+            return None
 
     def get_demand_temperature(self,entity) -> float:
         """Return demand temperature  from entity climate, or schedule(alsou return math.nan)"""
@@ -208,7 +249,6 @@ class Heating(hass.Hass):
 
     def print_state(self,entity):
         attributesT = self.get_state(entity, attribute="all")
-        #self.log(f" print_state attributesT :{attributesT}")
 
     def get_current_temperature(self,entity_thermostat) -> float:
         attributesT = self.get_state(entity_thermostat, attribute="all")
@@ -217,9 +257,7 @@ class Heating(hass.Hass):
 
     def get_follow_state(self,entity_thermostat) -> float:
         attributesT = self.get_state(entity_thermostat, attribute="all")
-        #self.log(f" call get_follow_state attributesT :{attributesT}")
         follow = attributesT["attributes"].get('follow')
-        #self.log(f" call get_follow_state {follow}")
         return bool(follow)
 
     def __set_thermostat(
@@ -235,7 +273,6 @@ class Heating(hass.Hass):
         self.log(
             f"Updating thermostat {entity_id}: temperature target {target_temp}, "
             f"mode {boiler_mode} ")
-        #f"current temperature {current_temp}.")
         if current_temp is not None and target_temp is not None and boiler_mode is not None:
             attrs = {}
             #attrs[ATTR_CURRENT_TEMP] = current_temp
@@ -257,6 +294,8 @@ class Heating(hass.Hass):
             self.log(f" call set atribute ok {attrs}")
 
     def get_boilerMode(self) -> str:
+        if self.is_heating() is None:
+            return "None"
         if self.is_heating():
             return HVAC_HEAT
         else:
