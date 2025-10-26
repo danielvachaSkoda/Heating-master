@@ -1,29 +1,8 @@
----
 heating:
   module: heating-driver
   class: Heating
   switch_heating: switch.shellyplus1_901506815550
   rooms:
-    - scheduler: schedule.obyvak_plan
-      thermostat: climate.obyvak_termostat_1
-      room_id: room_id_obyvak # value of mode in room
-    - scheduler: schedule.pracovna_plan
-      thermostat: climate.pracovna_termostat
-      room_id: room_id_pracovna
-    - scheduler: schedule.pokoj_elias_plan
-      thermostat: climate.tze200_lnbfnyxd_ts0601_termostat
-      room_id: room_id_pokoj_elias
     - scheduler: schedule.loznice_plan
-      thermostat: climate.loznice_termostat
+      thermostat: climate.portable
       room_id: room_id_pokoj_loznice
-    - scheduler: schedule.pokoj_stepan_plan
-      thermostat: climate.prac_tesla_3_ts06013_termostat
-      room_id: room_id_pokoj_stepan
-
-heating-control:
-  module: heating-control
-  class: HeatingControl
-  switch_heating: switch.shellyplus1_901506815550
-  somebody_home: input_boolean.somebody_home
-  heating_mode: input_select.heating_mode
-  temperature_vacation: input_number.vacation_temperature
