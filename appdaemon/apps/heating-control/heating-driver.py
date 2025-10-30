@@ -5,7 +5,7 @@ import appdaemon.plugins.hass.hassapi as hass
 
 ATTR_SWITCH_HEATING = "switch_heating"
 ATTR_ROOMS = "rooms"
-HYSTERESIS = 2 # in celsius
+HYSTERESIS = 1 # in celsius
 ATTR_DEFAULT_MODE = "mode"
 
 
